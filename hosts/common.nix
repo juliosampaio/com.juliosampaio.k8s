@@ -1,0 +1,5 @@
+{ pkgs }:
+
+[
+  pkgs.htop
+]
