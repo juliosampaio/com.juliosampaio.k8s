@@ -177,13 +177,3 @@ jobs:
             fi
 
             echo "k3s systemd service ready on $HOST_NAME"
-
-      # 6) Deploy Traefik & cert-manager via composite action
-      - name: Deploy ingress stack (Traefik + cert-manager)
-        if: matrix.host == 'k8s-cluster-main'
-        uses: ./.github/actions/deploy-ingress
-        with:
-          host: ${{ secrets[matrix.ip] }}
-          username: ${{ secrets[matrix.username] }}
-          password: ${{ secrets[matrix.password] }}
-          le_email: ${{ secrets.LETSENCRYPT_EMAIL }}
