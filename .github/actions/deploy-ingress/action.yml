@@ -12,6 +12,7 @@ runs:
         envs: LE_EMAIL
         script: |
           set -e
+          export DISPLAY=
           # Ensure nix profile on PATH (contains helm & kubectl)
           source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh || true
           export PATH="$HOME/.nix-profile/bin:$PATH"
