@@ -23,7 +23,7 @@ The job is **idempotent** – re-running it on an already-configured host is a n
 
 ## 2. Build & Copy
 
-After the VPS is ready we build the desired system configuration on the GitHub runner and copy the resulting store paths to the host using `nix copy` with the `ssh-ng` transport:
+After bootstrapping, the runner builds each host’s **package closure** (a simple `pkgs.buildEnv`) instead of a full NixOS system and copies it to the node with `nix copy` using the `ssh-ng` transport:
 
 ```bash
 nix copy --no-check-sigs \
@@ -38,26 +38,45 @@ Key points:
 
 ---
 
-## 3. Switch-to-configuration (future)
+## 3. Activate profile
 
-A forthcoming workflow will remotely run
+On the remote host the job executes
 
 ```bash
-sudo nix-env --profile /nix/var/nix/profiles/system --set "$STORE_PATH"
-sudo /nix/var/nix/profiles/system/bin/switch-to-configuration switch
+nix-env --profile $HOME/.nix-profile --set "$STORE_PATH"
 ```
 
-This activates the freshly copied closure on each node.
+which atomically swaps the user profile to the new closure (no service interruption).
+
+## 4. Configure k3s
+
+Finally the workflow runs **one more SSH step** per host that:
+
+1. Ensures the Nix-built `k3s` binary is on `$PATH`.
+2. Invokes the official installer with `INSTALL_K3S_SKIP_DOWNLOAD=true` so it only generates/updates the systemd unit:
+
+```bash
+curl -sfL https://get.k3s.io | env \
+  INSTALL_K3S_SKIP_DOWNLOAD=true \
+  INSTALL_K3S_BIN_DIR="$HOME/.nix-profile/bin" \
+  K3S_TOKEN="$K3S_TOKEN" \
+  sh -s - server   # or "agent --server https://$SERVER_IP:6443"
+```
+
+This step is **idempotent**; re-running it leaves a healthy cluster untouched.
 
 ---
 
 ## Environment variables
 
-| Variable                | Description                                                   |
-| ----------------------- | ------------------------------------------------------------- |
-| `SSH_USER` / `SSH_HOST` | Credentials of the target VPS.                                |
-| `STORE_PATH`            | Derivation produced by `nix build .#<host>` in the build job. |
-| `NIX_PATH`              | Pinned to `nixos-23.11` for deterministic evaluation.         |
+| Variable / Secret          | Description                                                                 |
+| -------------------------- | --------------------------------------------------------------------------- |
+| `SSH_USER`, `SSH_PASSWORD` | Credentials of each target VPS (one pair per matrix entry).                 |
+| `${HOST}_IP`               | IP address of each host, used by the Actions matrix.                        |
+| `STORE_PATH`               | Output of `nix build .#packages.<system>.<host>`.                           |
+| `K3S_CLUSTER_TOKEN`        | Shared secret all nodes use to join the cluster.                            |
+| `K8S_CLUSTER_MAIN_IP`      | Address of the control-plane node, injected into the worker’s systemd unit. |
+| `NIX_PATH`                 | Pinned to `nixos-23.11` for deterministic evaluation.                       |
 
 ---
 
@@ -65,4 +84,4 @@ This activates the freshly copied closure on each node.
 
 - Use matrix builds if you add more nodes – one build and copy per host.
 - Cache the build output using `nix-cache-action` to speed up subsequent runs.
-- Consider enabling `--gzip` compression on the `nix copy` command for very large closures.
+- Consider enabling `--gzip`

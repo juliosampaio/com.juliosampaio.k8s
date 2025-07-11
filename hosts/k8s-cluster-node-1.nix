@@ -8,4 +8,6 @@ in
 
 common ++ [
   dinosay
+  # k3s agent binary (same version as control-plane)
+  pkgs.k3s
 ]

@@ -1,0 +1,7 @@
+Add the following content:
+1. Add CI post-deploy health check step (kubectl get nodes) to fail pipeline if any node is not Ready.
+2. Install an ingress controller (Traefik or NGINX Ingress) via Helm and pin chart version in flake.
+3. Configure Helm in the flake for reproducible application deployments.
+4. Deploy monitoring stack (Prometheus + Grafana) to the cluster using Helm.
+5. Provision a persistent storage class (Longhorn or Rook-Ceph) suitable for VPS disks.
+6. (Optional) Set up WireGuard mesh or provider private network and switch k3s traffic to it. 

@@ -6,7 +6,7 @@ _Nix-powered, fully reproducible Kubernetes cluster definitions plus CI/CD pipel
 
 ## Overview
 
-This repository manages the configuration of a small Kubernetes cluster (control-plane + worker nodes) **entirely with Nix flakes**. Each node’s NixOS configuration is declared in the `hosts/` directory and built & deployed automatically by GitHub Actions.
+This repository manages the configuration of a small Kubernetes cluster (control-plane + worker nodes) **entirely with Nix flakes on top of vanilla Debian VPSs**. Each host’s desired _package list_ is declared in the `hosts/` directory and built & deployed automatically by GitHub Actions.
 
 Key goals:
 
@@ -22,7 +22,7 @@ Key goals:
 .
 ├── flake.nix                # Entry point – defines outputs
 ├── flake.lock               # Pin of all Nix inputs
-├── hosts/                   # Per-node module lists
+├── hosts/                   # Per-node package lists
 ├── docs/                    # Project and pipeline documentation
 └── .github/workflows/       # CI/CD definitions
 ```
@@ -33,7 +33,7 @@ A detailed explanation of each part lives in [`docs/architecture.md`](docs/archi
 
 ## CI / CD
 
-GitHub Actions builds the system closures and deploys them to the nodes on every push to `main`. The workflow is documented in [`docs/github-actions.md`](docs/github-actions.md).
+GitHub Actions builds each host’s package closure and deploys it, then provisions k3s, on every push to `main`. Details live in [`docs/github-actions.md`](docs/github-actions.md).
 
 ---
 
@@ -41,20 +41,22 @@ GitHub Actions builds the system closures and deploys them to the nodes on every
 
 1. **Prepare your VPS instances** (Debian/Ubuntu tested) – ensure you can SSH in as a user with sudo privileges.
 2. **Set repository secrets**
-   - `SSH_USER`, `SSH_HOST` – credentials for each node (or use encrypted files + matrix).
+   - `K8S_CLUSTER_MAIN_IP` – control-plane IP the workers will join.
+   - `K3S_CLUSTER_TOKEN` – shared token all nodes use when registering.
+   - Per-host credentials (`<HOST>_USER`, `<HOST>_PASSWORD`, `<HOST>_IP`).
 3. **Push a commit** → GitHub Actions will:
-   1. Install Nix (`--daemon --yes`) on the node if missing.
-   2. Build the node’s NixOS closure.
-   3. Copy the closure via `ssh-ng`.
-   4. (Coming soon) switch the node to the new configuration.
+   1. Install Nix (if missing) on the node.
+   2. Build the host’s package closure (`nix build .#packages.<system>.<host>`).
+   3. Copy & activate the closure (atomic `nix-env --set`).
+   4. Generate / update a `k3s` systemd unit (server or agent) using the Nix-built binary.
 
 ---
 
 ## Local development
 
 ```bash
-# build the control-plane system locally
-nix build .#nixosConfigurations.k8s-cluster-main.config.system.build.toplevel
+# build the control-plane package closure locally
+nix build .#packages.aarch64-linux.k8s-cluster-main
 
 # run nix repl to inspect outputs
 nix repl flake:nixosConfigurations.k8s-cluster-node-1
@@ -64,7 +66,7 @@ nix repl flake:nixosConfigurations.k8s-cluster-node-1
 
 ## Prerequisites (manual install)
 
-If you want to test outside CI you need Nix **multi-user** mode:
+If you want to test outside CI you need Nix **multi-user** mode (daemon):
 
 ```bash
 sh <(curl -L https://nixos.org/nix/install) --daemon --yes

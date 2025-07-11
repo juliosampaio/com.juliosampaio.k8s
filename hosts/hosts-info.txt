@@ -1,0 +1,57 @@
+### Host inventory collected: 2025-07-11T02:13:35+02:00
+
+## Architecture & Kernel
+Linux v2202507286781361001 6.1.0-37-arm64 #1 SMP Debian 6.1.140-1 (2025-05-22) aarch64 GNU/Linux
+
+## OS Release
+PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"
+NAME="Debian GNU/Linux"
+VERSION_ID="12"
+VERSION="12 (bookworm)"
+VERSION_CODENAME=bookworm
+ID=debian
+HOME_URL="https://www.debian.org/"
+SUPPORT_URL="https://www.debian.org/support"
+BUG_REPORT_URL="https://bugs.debian.org/"
+
+Distributor ID:	Debian
+Description:	Debian GNU/Linux 12 (bookworm)
+Release:	12
+Codename:	bookworm
+
+## Init System
+systemd 252 (252.38-1~deb12u1)
+PID 1 process: systemd
+
+## Cgroup Version
+cgroup2fs
+
+## CPU & Memory
+Architecture:                            aarch64
+Model name:                              Neoverse-N1
+BIOS Model name:                         virt-6.2  CPU @ 2.0GHz
+               total        used        free      shared  buff/cache   available
+Mem:           7.8Gi       317Mi       6.2Gi       3.6Mi       1.4Gi       7.4Gi
+Swap:             0B          0B          0B
+
+## Disk (/)
+Filesystem     Type  Size  Used Avail Use% Mounted on
+/dev/vda4      ext4  252G  2.4G  239G   1% /
+
+## Network Interfaces & IPs
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+eth0             UP             152.53.15.34/22 2a03:4000:6b:deb:9853:32ff:fe15:f3de/64 fe80::9853:32ff:fe15:f3de/64 
+
+## Interface MTU
+lo  MTU: 65536
+eth0  MTU: 1500
+
+## SELinux Status
+SELinux not installed or getenforce unavailable
+
+## AppArmor Status
+apparmor module is loaded.
+7 profiles are loaded.
+7 profiles are in enforce mode.
+   /usr/lib/NetworkManager/nm-dhcp-client.action
+   /usr/lib/NetworkManager/nm-dhcp-helper

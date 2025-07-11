@@ -128,3 +128,52 @@ jobs:
             source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh || true
             echo "Activating $STORE_PATH…"
             nix-env --profile $HOME/.nix-profile --set "$STORE_PATH"
+
+      # 5) Provision and start k3s (server on control-plane, agent on workers)
+      - name: Configure k3s on ${{ matrix.host }}
+        uses: appleboy/ssh-action@v0.1.7
+        env:
+          HOST_NAME: ${{ matrix.host }}
+          K3S_TOKEN: ${{ secrets.K3S_CLUSTER_TOKEN }}
+          SERVER_IP: ${{ secrets.K8S_CLUSTER_MAIN_IP }}
+        with:
+          host: ${{ secrets[matrix.ip] }}
+          username: ${{ secrets[matrix.username] }}
+          password: ${{ secrets[matrix.password] }}
+          envs: HOST_NAME,K3S_TOKEN,SERVER_IP
+          script: |
+            set -e
+
+            # ensure nix profile binaries are on PATH for this non-login shell
+            source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh || true
+
+            # Path to the k3s binary inside the nix profile
+            K3S_BIN="$HOME/.nix-profile/bin/k3s"
+
+            if [ ! -x "$K3S_BIN" ]; then
+              echo "k3s binary not found in nix profile ($K3S_BIN)" >&2
+              exit 1
+            fi
+
+            # Use the official k3s install script to generate/update the systemd unit.
+            # We SKIP the binary download so it reuses the one provided by Nix.
+            INSTALL_ENV="INSTALL_K3S_SKIP_DOWNLOAD=true INSTALL_K3S_BIN_DIR=$HOME/.nix-profile/bin"
+
+            if [ "$HOST_NAME" = "k8s-cluster-main" ]; then
+              echo "### Installing/updating k3s server service"
+              curl -sfL https://get.k3s.io | \
+                env INSTALL_K3S_SKIP_DOWNLOAD=true \
+                    INSTALL_K3S_BIN_DIR="$HOME/.nix-profile/bin" \
+                    K3S_TOKEN="$K3S_TOKEN" \
+                    sh -s - server --write-kubeconfig-mode 644 --disable traefik --disable metrics-server
+            else
+              echo "### Installing/updating k3s agent service"
+              curl -sfL https://get.k3s.io | \
+                env INSTALL_K3S_SKIP_DOWNLOAD=true \
+                    INSTALL_K3S_BIN_DIR="$HOME/.nix-profile/bin" \
+                    K3S_URL="https://$SERVER_IP:6443" \
+                    K3S_TOKEN="$K3S_TOKEN" \
+                    sh -s - agent
+            fi
+
+            echo "k3s systemd service ready on $HOST_NAME"

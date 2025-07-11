@@ -19,33 +19,33 @@ The flake exposes an output like `nixosConfigurations."k8s-cluster-main"` that t
 
 ## 2. `hosts/` directory
 
-Each file returns a list of _NixOS modules_ that make up a machine.
+Each file now returns a **plain list of packages** (wrapped in a `pkgs.buildEnv`) that will be installed into the user’s _profile_ on a vanilla Debian VPS. No NixOS required.
 
-| File                     | Purpose                                                               |
-| ------------------------ | --------------------------------------------------------------------- |
-| `common.nix`             | Modules shared by all nodes (e.g. `htop`).                            |
-| `k8s-cluster-main.nix`   | Adds base utilities (`pkgs.cowsay`) to the control-plane node.        |
-| `k8s-cluster-node-1.nix` | Example worker node – includes a `dinosay` script on top of `common`. |
+| File                     | Purpose                                                                  |
+| ------------------------ | ------------------------------------------------------------------------ |
+| `common.nix`             | Packages shared by all nodes (e.g. `htop`).                              |
+| `k8s-cluster-main.nix`   | Control-plane extras – `pkgs.cowsay` and **`pkgs.k3s` (server binary)**. |
+| `k8s-cluster-node-1.nix` | Worker extras – a `dinosay` helper plus **`pkgs.k3s` (agent binary)**.   |
 
-Because the files only return lists, they can easily be composed inside the flake outputs:
+Because they are just lists the flake can expose them directly under `packages.<system>.<host>`:
 
 ```nix
-{ pkgs, ... }:
-{
-  nixosConfigurations.k8s-cluster-main = nixpkgs.lib.nixosSystem {
-    modules = import ./hosts/k8s-cluster-main.nix;
-  };
-}
+outputs = { self, nixpkgs, flake-utils, ... }:
+  flake-utils.lib.eachDefaultSystem (system:
+    {
+      packages.k8s-cluster-main = import ./hosts/k8s-cluster-main.nix { inherit pkgs common; };
+    });
 ```
 
 ---
 
 ## 3. CI / CD flow
 
-1. **ConfigureVPS** – installs Nix on fresh VPS instances and patches the environment so `nix-daemon` is on the PATH.
-2. **Build** – Runner evaluates the flake and builds the relevant `nixosConfiguration`, producing a `/nix/store/<hash>-k8s-cluster-…` closure.
-3. **Copy** – `nix copy` streams the closure to the remote host using the `ssh-ng` protocol.
-4. **Activation** – (coming soon) a `switch` step will make the new system live.
+1. **ConfigureVPS** – installs Nix (if missing) and prepares `/etc/nix/nix.conf`.
+2. **Build** – Runner builds the **package closure** for each host (control-plane & worker).
+3. **Copy** – `nix copy` pushes the closure to the node via `ssh-ng`.
+4. **Activate** – `nix-env --set <closure>` atomically switches the user profile.
+5. **Configure k3s** – uses the official _k3s installer_ with `INSTALL_K3S_SKIP_DOWNLOAD=true` so it re-uses the Nix-built binary, generating a systemd unit (server on the control plane, agent on workers).
 
 ---
 
@@ -60,5 +60,5 @@ Because the files only return lists, they can easily be composed inside the flak
 ## 5. Future enhancements
 
 - Add a Hydra or Cachix binary cache to speed up deployments.
-- Expand host roles (e.g. ingress, monitoring) as additional files in `hosts/`.
-- Generate Kubernetes manifests from Nix as the next logical layer.
+- Expand host roles (ingress, monitoring, storage) as additional files in `hosts/`.
+- Define Kubernetes workloads (Helm charts) in the flake for reproducible app deploys.
