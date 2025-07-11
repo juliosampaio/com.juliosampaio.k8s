@@ -2,4 +2,5 @@
 
 [
   pkgs.htop
+  pkgs.helm
 ]
