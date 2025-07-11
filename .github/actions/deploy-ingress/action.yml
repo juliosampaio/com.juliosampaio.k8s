@@ -4,15 +4,10 @@ runs:
   using: composite
   steps:
     - name: Deploy Traefik + cert-manager on remote host
-      uses: appleboy/ssh-action@v0.1.7
-      with:
-        host: ${{ inputs.host }}
-        username: ${{ inputs.username }}
-        password: ${{ inputs.password }}
-        envs: LE_EMAIL
-        script: |
+      shell: bash
+      run: |
+        sshpass -p "${{ inputs.password }}" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "${{ inputs.username }}@${{ inputs.host }}" << 'EOF'
           set -e
-          export DISPLAY=
           # Ensure nix profile on PATH (contains helm & kubectl)
           source /nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh || true
           export PATH="$HOME/.nix-profile/bin:$PATH"
@@ -33,7 +28,7 @@ runs:
             --namespace cert-manager --create-namespace \
             --set installCRDs=true
 
-          cat <<EOF | kubectl apply -f -
+          cat <<EOT | kubectl apply -f -
           apiVersion: cert-manager.io/v1
           kind: ClusterIssuer
           metadata:
@@ -48,9 +43,10 @@ runs:
               - http01:
                   ingress:
                     class: traefik
-          EOF
+EOT
 
           echo "Ingress stack deployed"
+EOF
 inputs:
   host:
     description: Remote host
