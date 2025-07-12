@@ -1,0 +1,94 @@
+# Default values for app-template
+# This is a YAML-formatted file.
+
+# Application configuration
+app:
+  name: "sample-app"
+  image: "nginx:alpine"
+  tag: "latest"
+  port: 80
+
+# Deployment configuration
+deployment:
+  replicas: 2
+  resources:
+    requests:
+      memory: "64Mi"
+      cpu: "50m"
+    limits:
+      memory: "128Mi"
+      cpu: "100m"
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 80
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: "traefik"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+  # Flexible subdomain configuration
+  subdomain: "app"  # This will become app.juliosampaio.com or app.stage.juliosampaio.com
+  # Alternative: use custom domain pattern
+  # customDomain: "myapp.juliosampaio.com"  # Overrides subdomain pattern
+  hosts:
+    - host: "app.juliosampaio.com"  # Default, will be overridden by subdomain or customDomain
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: "app-tls"
+      hosts:
+        - "app.juliosampaio.com"
+
+# Environment-specific overrides
+environments:
+  production:
+    deployment:
+      replicas: 3
+      resources:
+        requests:
+          memory: "128Mi"
+          cpu: "100m"
+        limits:
+          memory: "256Mi"
+          cpu: "200m"
+    ingress:
+      subdomain: "app"  # Will become app.juliosampaio.com
+      hosts:
+        - host: "app.juliosampaio.com"
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - secretName: "app-tls"
+          hosts:
+            - "app.juliosampaio.com"
+  
+  stage:
+    deployment:
+      replicas: 1
+      resources:
+        requests:
+          memory: "32Mi"
+          cpu: "25m"
+        limits:
+          memory: "64Mi"
+          cpu: "50m"
+    ingress:
+      subdomain: "app"  # Will become app.stage.juliosampaio.com
+      hosts:
+        - host: "app.stage.juliosampaio.com"
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - secretName: "app-stage-tls"
+          hosts:
+            - "app.stage.juliosampaio.com" 

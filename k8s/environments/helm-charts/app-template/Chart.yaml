@@ -1,0 +1,6 @@
+apiVersion: v2
+name: app-template
+description: A Helm chart template for deploying applications to different environments
+type: application
+version: 0.1.0
+appVersion: "1.0.0" 

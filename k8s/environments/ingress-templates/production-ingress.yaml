@@ -1,0 +1,43 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: production-ingress
+  namespace: production
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    # Optional: Add rate limiting
+    traefik.ingress.kubernetes.io/rate-limit: "100"
+spec:
+  tls:
+    - hosts:
+        - juliosampaio.com
+        # Add more production domains here as needed
+        # - app1.juliosampaio.com
+        # - api.juliosampaio.com
+        # - dashboard.juliosampaio.com
+      secretName: production-tls
+  rules:
+    # Main website - juliosampaio.com
+    - host: juliosampaio.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: main-website-service
+                port:
+                  number: 80
+    # Add more application routes here as needed
+    # - host: app1.juliosampaio.com
+    #   http:
+    #     paths:
+    #       - path: /
+    #         pathType: Prefix
+    #         backend:
+    #           service:
+    #             name: app1-service
+    #             port:
+    #               number: 80 

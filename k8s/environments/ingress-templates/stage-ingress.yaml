@@ -1,0 +1,43 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: stage-ingress
+  namespace: stage
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    # Optional: Add rate limiting (lower for stage)
+    traefik.ingress.kubernetes.io/rate-limit: "50"
+spec:
+  tls:
+    - hosts:
+        - stage.juliosampaio.com
+        # Add more stage domains here as needed
+        # - app1.stage.juliosampaio.com
+        # - api.stage.juliosampaio.com
+        # - dashboard.stage.juliosampaio.com
+      secretName: stage-tls
+  rules:
+    # Stage website - stage.juliosampaio.com
+    - host: stage.juliosampaio.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: main-website-service
+                port:
+                  number: 80
+    # Add more application routes here as needed
+    # - host: app1.stage.juliosampaio.com
+    #   http:
+    #     paths:
+    #       - path: /
+    #         pathType: Prefix
+    #         backend:
+    #           service:
+    #             name: app1-service
+    #             port:
+    #               number: 80 

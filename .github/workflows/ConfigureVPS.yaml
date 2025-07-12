@@ -338,3 +338,138 @@ jobs:
             kubectl get clusterissuer letsencrypt-prod
             echo ""
             echo "=== Traefik and cert-manager deployment completed successfully ==="
+
+            # Set up multi-environment infrastructure
+            echo "=== Setting up multi-environment infrastructure ==="
+
+            # Create environment namespaces
+            echo "Creating environment namespaces..."
+
+            # Check if namespaces already exist and create them
+            echo "Creating environment namespaces..."
+
+            # Create production namespace
+            if kubectl get namespace production >/dev/null 2>&1; then
+              echo "Production namespace already exists"
+            else
+              echo "Creating production namespace..."
+              kubectl create namespace production --dry-run=client -o yaml | kubectl apply -f -
+              kubectl label namespace production name=production environment=production
+            fi
+
+            # Create stage namespace
+            if kubectl get namespace stage >/dev/null 2>&1; then
+              echo "Stage namespace already exists"
+            else
+              echo "Creating stage namespace..."
+              kubectl create namespace stage --dry-run=client -o yaml | kubectl apply -f -
+              kubectl label namespace stage name=stage environment=stage
+            fi
+
+            # Show namespace status
+            echo "Current namespace status:"
+            kubectl get namespaces | grep -E "(production|stage)"
+
+            # Wait for namespaces to be ready
+            echo "Waiting for namespaces to be ready..."
+
+            # Wait for production namespace with better error handling
+            echo "Waiting for production namespace..."
+            timeout 120 bash -c 'until kubectl get namespace production -o jsonpath="{.status.phase}" | grep -q "Active"; do sleep 2; done' || {
+              echo "Warning: Production namespace not ready after 2 minutes, but continuing..."
+              kubectl describe namespace production
+            }
+
+            # Wait for stage namespace with better error handling
+            echo "Waiting for stage namespace..."
+            timeout 120 bash -c 'until kubectl get namespace stage -o jsonpath="{.status.phase}" | grep -q "Active"; do sleep 2; done' || {
+              echo "Warning: Stage namespace not ready after 2 minutes, but continuing..."
+              kubectl describe namespace stage
+            }
+
+            echo "Namespace status after waiting:"
+            kubectl get namespaces | grep -E "(production|stage)"
+
+            # Deploy base ingress configurations for environments
+            echo "Deploying base ingress configurations..."
+
+            # Production ingress
+            kubectl apply -f - <<EOF
+            apiVersion: networking.k8s.io/v1
+            kind: Ingress
+            metadata:
+              name: production-ingress
+              namespace: production
+              annotations:
+                cert-manager.io/cluster-issuer: "letsencrypt-prod"
+                traefik.ingress.kubernetes.io/router.entrypoints: websecure
+                traefik.ingress.kubernetes.io/router.tls: "true"
+                traefik.ingress.kubernetes.io/rate-limit: "100"
+            spec:
+              tls:
+                - hosts:
+                    - juliosampaio.com
+                  secretName: production-tls
+              rules:
+                - host: juliosampaio.com
+                  http:
+                    paths:
+                      - path: /
+                        pathType: Prefix
+                        backend:
+                          service:
+                            name: main-website-service
+                            port:
+                              number: 80
+            EOF
+
+            # Stage ingress
+            kubectl apply -f - <<EOF
+            apiVersion: networking.k8s.io/v1
+            kind: Ingress
+            metadata:
+              name: stage-ingress
+              namespace: stage
+              annotations:
+                cert-manager.io/cluster-issuer: "letsencrypt-prod"
+                traefik.ingress.kubernetes.io/router.entrypoints: websecure
+                traefik.ingress.kubernetes.io/router.tls: "true"
+                traefik.ingress.kubernetes.io/rate-limit: "50"
+            spec:
+              tls:
+                - hosts:
+                    - stage.juliosampaio.com
+                  secretName: stage-tls
+              rules:
+                - host: stage.juliosampaio.com
+                  http:
+                    paths:
+                      - path: /
+                        pathType: Prefix
+                        backend:
+                          service:
+                            name: main-website-service
+                            port:
+                              number: 80
+            EOF
+
+            # Verify environment setup
+            echo "=== Environment Setup Verification ==="
+            echo "Namespaces:"
+            kubectl get namespaces | grep -E "(production|stage)"
+            echo ""
+            echo "Production ingress:"
+            kubectl get ingress -n production
+            echo ""
+            echo "Stage ingress:"
+            kubectl get ingress -n stage
+            echo ""
+            echo "=== Multi-environment infrastructure setup completed successfully ==="
+            echo ""
+            echo "The cluster is now ready for external application deployments!"
+            echo "External repositories can deploy applications using:"
+            echo "  kubectl apply -f app-deployment.yaml -n production"
+            echo "  kubectl apply -f app-deployment.yaml -n stage"
+            echo ""
+            echo "Or using the provided Helm chart:"
+            echo "  helm upgrade --install app-name k8s/environments/helm-charts/app-template --namespace production"

@@ -8,7 +8,9 @@ _Nix-powered, fully reproducible Kubernetes cluster definitions plus CI/CD pipel
 
 This repository manages the configuration of a small Kubernetes cluster (control-plane + worker nodes) **entirely with Nix flakes on top of vanilla Debian VPSs**. Each host's desired _package list_ is declared in the `hosts/` directory and built & deployed automatically by GitHub Actions.
 
-The cluster includes a complete ingress and HTTPS infrastructure with Traefik and cert-manager for automatic SSL certificate management.
+The cluster includes a complete ingress and HTTPS infrastructure with Traefik and cert-manager for automatic SSL certificate management, plus **multi-environment support** for external application deployments.
+
+**This repository provides the infrastructure layer only.** Application deployments are handled by external repositories.
 
 Key goals:
 
@@ -27,6 +29,13 @@ Key goals:
 ├── flake.lock               # Pin of all Nix inputs
 ├── hosts/                   # Per-node package lists
 ├── docs/                    # Project and pipeline documentation
+├── k8s/                     # Kubernetes manifests and environments
+│   └── environments/        # Multi-environment setup
+│       ├── namespaces.yaml  # Environment namespaces
+│       ├── ingress-templates/ # Ingress configurations
+│       ├── app-templates/   # Application deployment templates
+│       ├── helm-charts/     # Helm charts for easy deployment
+│       └── deploy-environments.sh # Environment setup script
 └── .github/workflows/       # CI/CD definitions
 ```
 
@@ -54,6 +63,7 @@ GitHub Actions builds each host's package closure and deploys it, then provision
    3. Copy & activate the closure (atomic `nix-env --set`).
    4. Generate / update a `k3s` systemd unit (server or agent) using the Nix-built binary.
    5. Install Traefik and cert-manager for automatic HTTPS certificates.
+   6. Set up production and stage environments with ingress configurations.
 
 ---
 
@@ -70,9 +80,45 @@ GitHub Actions builds each host's package closure and deploys it, then provision
 - **cert-manager**: Automatic SSL certificate management via Let's Encrypt
 - **Hybrid approach**: Nix for k3s, official binaries for Helm (avoiding X11 issues)
 
-### Application Deployment
+### Multi-Environment Support
 
-Applications can be deployed with automatic HTTPS certificates:
+The cluster supports multiple environments using **flexible subdomain-based routing**. You can deploy any application with any subdomain pattern:
+
+- **Production**: `juliosampaio.com`, `app1.juliosampaio.com`, `api.juliosampaio.com`, etc.
+- **Stage**: `stage.juliosampaio.com`, `app1.stage.juliosampaio.com`, `api.stage.juliosampaio.com`, etc.
+
+Each environment has its own namespace with automatic SSL certificates and environment-specific configurations. The system is completely flexible and supports any subdomain pattern you want.
+
+### External Application Deployment
+
+**This repository provides infrastructure only.** Applications are deployed by external repositories.
+
+For external repositories wanting to deploy to this cluster, see:
+
+- [`k8s/environments/EXTERNAL_DEPLOYMENT_GUIDE.md`](k8s/environments/EXTERNAL_DEPLOYMENT_GUIDE.md) - Complete deployment guide
+- [`k8s/environments/FLEXIBLE_SUBDOMAIN_SETUP.md`](k8s/environments/FLEXIBLE_SUBDOMAIN_SETUP.md) - Subdomain configuration guide
+
+**Quick deployment examples for external repositories:**
+
+```bash
+# Deploy using Helm chart
+helm upgrade --install my-app k8s/environments/helm-charts/app-template \
+  --namespace production \
+  --set app.image=my-registry/my-app \
+  --set ingress.subdomain=myapp
+
+# Deploy using Kubernetes manifests
+kubectl apply -f app-deployment.yaml -n production
+kubectl apply -f app-service.yaml -n production
+kubectl apply -f app-ingress.yaml -n production
+```
+
+**Available environments:**
+
+- **Production**: `{subdomain}.juliosampaio.com`
+- **Stage**: `{subdomain}.stage.juliosampaio.com`
+
+Applications can be deployed with automatic HTTPS certificates using standard Kubernetes manifests:
 
 ```yaml
 apiVersion: networking.k8s.io/v1
