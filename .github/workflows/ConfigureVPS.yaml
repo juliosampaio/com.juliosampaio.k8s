@@ -177,3 +177,164 @@ jobs:
             fi
 
             echo "k3s systemd service ready on $HOST_NAME"
+
+  deploy-ingress:
+    runs-on: ubuntu-latest
+    needs: deploy
+    steps:
+      - name: Deploy Traefik and cert-manager
+        uses: appleboy/ssh-action@v0.1.7
+        env:
+          K8S_CLUSTER_MAIN_IP: ${{ secrets.K8S_CLUSTER_MAIN_IP }}
+          K8S_CLUSTER_MAIN_USER: ${{ secrets.K8S_CLUSTER_MAIN_USER }}
+          K8S_CLUSTER_MAIN_PASSWORD: ${{ secrets.K8S_CLUSTER_MAIN_PASSWORD }}
+          LETSENCRYPT_EMAIL: ${{ secrets.LETSENCRYPT_EMAIL }}
+        with:
+          host: ${{ secrets.K8S_CLUSTER_MAIN_IP }}
+          username: ${{ secrets.K8S_CLUSTER_MAIN_USER }}
+          password: ${{ secrets.K8S_CLUSTER_MAIN_PASSWORD }}
+          envs: K8S_CLUSTER_MAIN_IP,K8S_CLUSTER_MAIN_USER,K8S_CLUSTER_MAIN_PASSWORD,LETSENCRYPT_EMAIL
+          script: |
+            set -e
+
+            echo "=== Starting Traefik and cert-manager deployment ==="
+
+            # Wait for k3s to be ready
+            echo "Waiting for k3s to be ready..."
+            timeout 300 bash -c 'until kubectl get nodes 2>/dev/null; do sleep 5; done' || {
+              echo "Error: k3s not ready after 5 minutes"
+              exit 1
+            }
+
+            # Ensure kubectl is available and kubeconfig is set up
+            if ! command -v kubectl >/dev/null 2>&1; then
+              echo "Creating kubectl symlink..."
+              sudo ln -sf /usr/local/bin/k3s /usr/local/bin/kubectl
+            fi
+
+            # Set up kubeconfig for the current user
+            echo "Setting up kubeconfig..."
+            mkdir -p ~/.kube
+            sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
+            sudo chown $USER:$USER ~/.kube/config
+            chmod 600 ~/.kube/config
+
+            # Test kubectl connection
+            echo "Testing kubectl connection..."
+            kubectl get nodes
+
+                        # Download and install official Helm binary (avoid Nix-built version)
+            echo "Installing official Helm binary..."
+            HELM_VERSION="v3.14.2"
+            HELM_DIR="/tmp/helm-${HELM_VERSION}"
+
+            # Remove any existing Helm from PATH to avoid Nix-built version
+            export PATH="/usr/local/bin:/usr/bin:/bin"
+
+            # Download and install Helm
+            mkdir -p "$HELM_DIR"
+            cd "$HELM_DIR"
+            curl -fsSL -o helm.tar.gz "https://get.helm.sh/helm-${HELM_VERSION}-linux-arm64.tar.gz"
+            tar -xzf helm.tar.gz
+            cd linux-arm64
+            sudo cp helm /usr/local/bin/
+            sudo chmod +x /usr/local/bin/helm
+            cd /
+            rm -rf "$HELM_DIR"
+
+            # Verify Helm installation
+            /usr/local/bin/helm version --client
+
+            # Install Traefik
+            echo "Installing Traefik..."
+            /usr/local/bin/helm repo add traefik https://traefik.github.io/charts
+            /usr/local/bin/helm repo update
+
+            # Check if Traefik is already installed
+            if ! /usr/local/bin/helm list -n kube-system --kubeconfig ~/.kube/config | grep -q traefik; then
+              /usr/local/bin/helm install traefik traefik/traefik \
+                --namespace kube-system \
+                --create-namespace \
+                --version 25.0.0 \
+                --set ports.web.redirectTo.port=websecure \
+                --set ports.websecure.tls.enabled=true \
+                --kubeconfig ~/.kube/config
+              echo "Traefik installed successfully"
+            else
+              echo "Traefik already installed, upgrading..."
+              /usr/local/bin/helm upgrade traefik traefik/traefik \
+                --namespace kube-system \
+                --version 25.0.0 \
+                --set ports.web.redirectTo.port=websecure \
+                --set ports.websecure.tls.enabled=true \
+                --kubeconfig ~/.kube/config
+            fi
+
+            # Wait for Traefik to be ready
+            echo "Waiting for Traefik to be ready..."
+            kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=traefik -n kube-system --timeout=300s
+
+            # Install cert-manager
+            echo "Installing cert-manager..."
+            /usr/local/bin/helm repo add jetstack https://charts.jetstack.io
+            /usr/local/bin/helm repo update
+
+            # Check if cert-manager is already installed
+            if ! /usr/local/bin/helm list -n cert-manager --kubeconfig ~/.kube/config | grep -q cert-manager; then
+              /usr/local/bin/helm install cert-manager jetstack/cert-manager \
+                --namespace cert-manager \
+                --create-namespace \
+                --version v1.13.3 \
+                --set installCRDs=true \
+                --kubeconfig ~/.kube/config
+              echo "cert-manager installed successfully"
+            else
+              echo "cert-manager already installed, upgrading..."
+              /usr/local/bin/helm upgrade cert-manager jetstack/cert-manager \
+                --namespace cert-manager \
+                --version v1.13.3 \
+                --set installCRDs=true \
+                --kubeconfig ~/.kube/config
+            fi
+
+            # Wait for cert-manager to be ready
+            echo "Waiting for cert-manager to be ready..."
+            kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=cert-manager -n cert-manager --timeout=300s
+
+            # Create ClusterIssuer for Let's Encrypt
+            echo "Creating ClusterIssuer..."
+            kubectl apply -f - <<EOF
+            apiVersion: cert-manager.io/v1
+            kind: ClusterIssuer
+            metadata:
+              name: letsencrypt-prod
+            spec:
+              acme:
+                server: https://acme-v02.api.letsencrypt.org/directory
+                email: $LETSENCRYPT_EMAIL
+                privateKeySecretRef:
+                  name: letsencrypt-prod
+                solvers:
+                - http01:
+                    ingress:
+                      class: traefik
+            EOF
+
+            # Wait for ClusterIssuer to be ready
+            echo "Waiting for ClusterIssuer to be ready..."
+            timeout 120 bash -c 'until kubectl get clusterissuer letsencrypt-prod -o jsonpath="{.status.conditions[?(@.type==\"Ready\")].status}" | grep -q "True"; do sleep 5; done' || {
+              echo "Warning: ClusterIssuer not ready after 2 minutes, but continuing..."
+            }
+
+            # Verify installation
+            echo "=== Verification ==="
+            echo "Traefik pods:"
+            kubectl get pods -n kube-system -l app.kubernetes.io/name=traefik
+            echo ""
+            echo "cert-manager pods:"
+            kubectl get pods -n cert-manager
+            echo ""
+            echo "ClusterIssuer:"
+            kubectl get clusterissuer letsencrypt-prod
+            echo ""
+            echo "=== Traefik and cert-manager deployment completed successfully ==="
