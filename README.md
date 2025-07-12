@@ -1,18 +1,21 @@
 # com.juliosampaio.k8s
 
-_Nix-powered, fully reproducible Kubernetes cluster definitions plus CI/CD pipelines._
+_Nix-powered, fully reproducible Kubernetes cluster definitions plus CI/CD pipelines with automatic HTTPS certificates._
 
 ---
 
 ## Overview
 
-This repository manages the configuration of a small Kubernetes cluster (control-plane + worker nodes) **entirely with Nix flakes on top of vanilla Debian VPSs**. Each host’s desired _package list_ is declared in the `hosts/` directory and built & deployed automatically by GitHub Actions.
+This repository manages the configuration of a small Kubernetes cluster (control-plane + worker nodes) **entirely with Nix flakes on top of vanilla Debian VPSs**. Each host's desired _package list_ is declared in the `hosts/` directory and built & deployed automatically by GitHub Actions.
+
+The cluster includes a complete ingress and HTTPS infrastructure with Traefik and cert-manager for automatic SSL certificate management.
 
 Key goals:
 
 - **Reproducibility** – a single commit fully describes a node.
 - **Idempotent automation** – pipelines can be re-run at any time without manual clean-up.
 - **Ease-of-use** – minimal host setup; everything is bootstrapped from CI.
+- **Production-ready** – automatic HTTPS certificates and modern ingress controller.
 
 ---
 
@@ -33,7 +36,7 @@ A detailed explanation of each part lives in [`docs/architecture.md`](docs/archi
 
 ## CI / CD
 
-GitHub Actions builds each host’s package closure and deploys it, then provisions k3s, on every push to `main`. Details live in [`docs/github-actions.md`](docs/github-actions.md).
+GitHub Actions builds each host's package closure and deploys it, then provisions k3s, and finally installs Traefik and cert-manager for automatic HTTPS certificates on every push to `main`. Details live in [`docs/github-actions.md`](docs/github-actions.md).
 
 ---
 
@@ -43,12 +46,58 @@ GitHub Actions builds each host’s package closure and deploys it, then provisi
 2. **Set repository secrets**
    - `K8S_CLUSTER_MAIN_IP` – control-plane IP the workers will join.
    - `K3S_CLUSTER_TOKEN` – shared token all nodes use when registering.
+   - `LETSENCRYPT_EMAIL` – email for Let's Encrypt notifications.
    - Per-host credentials (`<HOST>_USER`, `<HOST>_PASSWORD`, `<HOST>_IP`).
 3. **Push a commit** → GitHub Actions will:
    1. Install Nix (if missing) on the node.
-   2. Build the host’s package closure (`nix build .#packages.<system>.<host>`).
+   2. Build the host's package closure (`nix build .#packages.<system>.<host>`).
    3. Copy & activate the closure (atomic `nix-env --set`).
    4. Generate / update a `k3s` systemd unit (server or agent) using the Nix-built binary.
+   5. Install Traefik and cert-manager for automatic HTTPS certificates.
+
+---
+
+## Infrastructure Components
+
+### Core Cluster
+
+- **k3s**: Lightweight, production-ready Kubernetes distribution
+- **Nix-built binaries**: Reproducible and reliable system components
+
+### Ingress & HTTPS
+
+- **Traefik**: Modern ingress controller with automatic HTTP→HTTPS redirects
+- **cert-manager**: Automatic SSL certificate management via Let's Encrypt
+- **Hybrid approach**: Nix for k3s, official binaries for Helm (avoiding X11 issues)
+
+### Application Deployment
+
+Applications can be deployed with automatic HTTPS certificates:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  tls:
+    - hosts:
+        - your-domain.com
+      secretName: your-app-tls
+  rules:
+    - host: your-domain.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: your-app-service
+                port:
+                  number: 80
+```
 
 ---
 

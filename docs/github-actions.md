@@ -23,7 +23,7 @@ The job is **idempotent** – re-running it on an already-configured host is a n
 
 ## 2. Build & Copy
 
-After bootstrapping, the runner builds each host’s **package closure** (a simple `pkgs.buildEnv`) instead of a full NixOS system and copies it to the node with `nix copy` using the `ssh-ng` transport:
+After bootstrapping, the runner builds each host's **package closure** (a simple `pkgs.buildEnv`) instead of a full NixOS system and copies it to the node with `nix copy` using the `ssh-ng` transport:
 
 ```bash
 nix copy --no-check-sigs \
@@ -67,6 +67,31 @@ This step is **idempotent**; re-running it leaves a healthy cluster untouched.
 
 ---
 
+## 5. Deploy Ingress Stack
+
+**Job:** `deploy-ingress` (runs after `deploy` completes)
+
+Installs Traefik and cert-manager to provide ingress and automatic HTTPS certificates:
+
+| Step                     | Purpose                                                                                          |
+| ------------------------ | ------------------------------------------------------------------------------------------------ |
+| **Wait for k3s**         | Ensures the cluster is ready before proceeding.                                                  |
+| **Setup kubectl**        | Creates kubectl symlink and configures kubeconfig with proper permissions.                       |
+| **Install Helm**         | Downloads and installs the official Helm binary (v3.14.2) to avoid Nix-built version X11 issues. |
+| **Install Traefik**      | Installs Traefik v25.0.0 via Helm with HTTPS redirects and TLS enabled.                          |
+| **Install cert-manager** | Installs cert-manager v1.13.3 via Helm with CRDs and Let's Encrypt integration.                  |
+| **Create ClusterIssuer** | Sets up `letsencrypt-prod` ClusterIssuer for automatic SSL certificate generation.               |
+| **Verify installation**  | Confirms all components are running and ready.                                                   |
+
+**Key features:**
+
+- **Idempotent**: Safe to run multiple times, upgrades existing installations
+- **Hybrid approach**: Uses official Helm binary for maximum compatibility
+- **Automatic HTTPS**: Ready for applications with automatic SSL certificates
+- **Error handling**: Robust timeout and error handling throughout
+
+---
+
 ## Environment variables
 
 | Variable / Secret          | Description                                                                 |
@@ -75,8 +100,27 @@ This step is **idempotent**; re-running it leaves a healthy cluster untouched.
 | `${HOST}_IP`               | IP address of each host, used by the Actions matrix.                        |
 | `STORE_PATH`               | Output of `nix build .#packages.<system>.<host>`.                           |
 | `K3S_CLUSTER_TOKEN`        | Shared secret all nodes use to join the cluster.                            |
-| `K8S_CLUSTER_MAIN_IP`      | Address of the control-plane node, injected into the worker’s systemd unit. |
+| `K8S_CLUSTER_MAIN_IP`      | Address of the control-plane node, injected into the worker's systemd unit. |
+| `LETSENCRYPT_EMAIL`        | Email address for Let's Encrypt notifications and account registration.     |
 | `NIX_PATH`                 | Pinned to `nixos-23.11` for deterministic evaluation.                       |
+
+---
+
+## Required GitHub Secrets
+
+For the complete setup, you need these secrets in your repository:
+
+| Secret Name                  | Description                                   | Example                               |
+| ---------------------------- | --------------------------------------------- | ------------------------------------- |
+| `K8S_CLUSTER_MAIN_IP`        | Control-plane VPS IP address                  | `192.168.1.100`                       |
+| `K8S_CLUSTER_MAIN_USER`      | Control-plane VPS username                    | `debian`                              |
+| `K8S_CLUSTER_MAIN_PASSWORD`  | Control-plane VPS password                    | `your-password`                       |
+| `K8S_CLUSTER_NODE1_IP`       | Worker node VPS IP address                    | `192.168.1.101`                       |
+| `K8S_CLUSTER_NODE1_USER`     | Worker node VPS username                      | `debian`                              |
+| `K8S_CLUSTER_NODE1_PASSWORD` | Worker node VPS password                      | `your-password`                       |
+| `K3S_CLUSTER_TOKEN`          | Shared token for cluster joining              | `K10c4b8c1c2c3c4c5c6c7c8c9c0`         |
+| `LETSENCRYPT_EMAIL`          | Email for Let's Encrypt notifications         | `admin@yourdomain.com`                |
+| `SSH_PRIVATE_KEY`            | SSH private key for passwordless file copying | `-----BEGIN OPENSSH PRIVATE KEY-----` |
 
 ---
 
@@ -84,4 +128,6 @@ This step is **idempotent**; re-running it leaves a healthy cluster untouched.
 
 - Use matrix builds if you add more nodes – one build and copy per host.
 - Cache the build output using `nix-cache-action` to speed up subsequent runs.
-- Consider enabling `--gzip`
+- Consider enabling `--gzip` for faster transfers.
+- The ingress stack deployment is designed to be idempotent and safe to re-run.
+- Monitor the GitHub Actions logs for detailed deployment progress and troubleshooting.
