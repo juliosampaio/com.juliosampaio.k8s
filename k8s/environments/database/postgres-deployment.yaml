@@ -1,0 +1,161 @@
+# Shared PostgreSQL deployment for multi-tenant applications
+# This provides a single PostgreSQL instance that can host multiple databases
+
+# Note: This is a template file. In production, the password should be generated
+# securely and stored in a Kubernetes secret. The GitHub Actions workflow
+# generates a secure password automatically.
+#
+# To use this template manually, create a secret first:
+# kubectl create secret generic postgres-secret --from-literal=postgres-password=$(openssl rand -base64 32)
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+  namespace: production  # or stage
+type: Opaque
+data:
+  # Password will be generated securely by the deployment script
+  # DO NOT use this hardcoded password in production!
+  postgres-password: PLACEHOLDER_PASSWORD_WILL_BE_REPLACED
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: production  # or stage
+data:
+  POSTGRES_DB: "shared_db"
+  POSTGRES_USER: "postgres"
+  # PostgreSQL configuration for multi-tenant setup
+  postgresql.conf: |
+    # Connection settings
+    max_connections = 100
+    shared_buffers = 256MB
+    effective_cache_size = 1GB
+    
+    # Logging
+    log_statement = 'all'
+    log_destination = 'stderr'
+    logging_collector = on
+    log_directory = 'pg_log'
+    log_filename = 'postgresql-%Y-%m-%d_%H%M%S.log'
+    
+    # Performance tuning for small apps
+    work_mem = 4MB
+    maintenance_work_mem = 64MB
+    
+    # WAL settings
+    wal_level = replica
+    max_wal_size = 1GB
+    checkpoint_completion_target = 0.9
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: production  # or stage
+  labels:
+    app: postgres
+    component: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+        component: database
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        ports:
+        - containerPort: 5432
+          name: postgres
+        env:
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: postgres-password
+        - name: POSTGRES_DB
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-config
+              key: POSTGRES_DB
+        - name: POSTGRES_USER
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-config
+              key: POSTGRES_USER
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        - name: postgres-config
+          mountPath: /etc/postgresql/postgresql.conf
+          subPath: postgresql.conf
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - postgres
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - postgres
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: postgres-storage
+        persistentVolumeClaim:
+          claimName: postgres-pvc
+      - name: postgres-config
+        configMap:
+          name: postgres-config
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: production  # or stage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi  # Adjust based on your needs
+  storageClassName: local-path  # k3s default storage class
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+  namespace: production  # or stage
+  labels:
+    app: postgres
+    component: database
+spec:
+  selector:
+    app: postgres
+  ports:
+  - port: 5432
+    targetPort: 5432
+    name: postgres
+  type: ClusterIP 

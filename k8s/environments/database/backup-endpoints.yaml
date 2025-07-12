@@ -1,0 +1,41 @@
+# Backup endpoints for n8n workflows
+# This creates services that n8n can use to connect to PostgreSQL databases
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-backup-service
+  namespace: production
+  labels:
+    app: postgres
+    component: database
+    purpose: backup
+spec:
+  selector:
+    app: postgres
+  ports:
+  - port: 5432
+    targetPort: 5432
+    name: postgres
+    protocol: TCP
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-backup-service
+  namespace: stage
+  labels:
+    app: postgres
+    component: database
+    purpose: backup
+spec:
+  selector:
+    app: postgres
+  ports:
+  - port: 5432
+    targetPort: 5432
+    name: postgres
+    protocol: TCP
+  type: ClusterIP 
